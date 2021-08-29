@@ -1,0 +1,10 @@
+%echo Generating a standard key
+Key-Type: RSA and RSA
+Key-Length: 4096
+Expire-Date: 0
+Name-Real: <%= authorName %>
+Name-Email: <%= authorEmail %>
+Name-Comment: <%= projectName %>/travis-ci
+Passphrase: <%= passphrase %>
+%commit
+%echo done

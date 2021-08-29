@@ -1,0 +1,90 @@
+os: linux
+dist: xenial
+
+branches:
+  only:
+    - master
+  except:
+    - /temp\/.*/
+
+language: node_js
+node_js:
+  - '10'
+  - '11'
+  - '12'
+  - '13'
+
+before_install:
+  # Configure signed git commits from within Travis CI, see:
+  # https://github.com/semantic-release/git/tree/905f113a577c55cd9bb0a37ea3504d9e8ee2dfa2#gpg-signature
+  # Decrypt git_gpg_keys.asc.enc key into /tmp/git_gpg_keys.asc
+  - openssl aes-256-cbc -K $encrypted_44fd1061a48b_key -iv $encrypted_44fd1061a48b_iv -in ./config/travis-ci/git_gpg_keys.asc.enc -out /tmp/git_gpg_keys.asc -d
+  # Make sure only the current user can read the keys
+  - chmod 600 /tmp/git_gpg_keys.asc
+  # Import the gpg key
+  - gpg --batch --yes --import /tmp/git_gpg_keys.asc
+  # Create a script that pass the passphrase to the gpg CLI called by git
+  - echo '/usr/bin/gpg --passphrase ${GPG_PASSPHRASE} --batch --no-tty "$@"' > /tmp/gpg-with-passphrase && chmod +x /tmp/gpg-with-passphrase
+  # Configure git to use the script that passes the passphrase
+  - git config gpg.program "/tmp/gpg-with-passphrase"
+  # Configure git to sign the commits and tags
+  - git config commit.gpgsign true
+  # Configure git to use your GPG key
+  - git config --global user.signingkey ${GPG_KEY_ID}
+install:
+  - npm install
+  # Remove installation side effects (like updated package-lock.json)
+  - git reset --hard HEAD
+before_script:
+  - npm run setup
+script:
+  - commitlint-travis
+  - npm run validate
+
+jobs:
+  include:
+    - stage: update CHANGELOG.md
+      if: type = pull_request
+      node_js: lts/*
+      script: npx semantic-release # runs with PR-specific config
+
+    - stage: release
+      node_js: lts/*
+      script: ':' # noop, skips tests
+      deploy:
+        edge: true
+        provider: script
+        script: npx semantic-release
+        on:
+          # Branch selection is managed by semantic-release in .releaserc.yml
+          all_branches: true
+          repo: JuroOravec/chonky-node-template
+      after_deploy:
+        - npx snyk monitor
+
+notifications:
+  email:
+    on_success: never
+
+env:
+  global:
+    # GH_TOKEN - semantic-release/github
+    - secure: WN9aKJR/NN4axW7OIkPhVXjBcRdcJR5+ZQIt9dFANZ/Q7jiqz4Z024NIJRUP0mAYuSTalJ59Ov1D7sv0Igpmlmv99jSW3GEPRSPtbGpSdC226EAFUYScta6u5vSckwcHlUvnB5mIjIqJQfnrGrkSTxNwHnV2hEtE7AGgZxhjo/Bl4nG6xTZnCCdcG37fW6H3batsXughUPQjPxZu9ElgTa8H/KAep2PEGCTLt++1aspyhsYGkY3x36wbhpHFrek+8iZ/rSt/R7UzK8FgbZ3ANDlHv7zrlgwXTF8T79Ae2g4gvrnZ3d/UECn9xjYHxN2fh8hpxrsQ64Ue+LCtbjoJ9McKXR4rHXYua+NJKic8OwA3oTXHuGoPKj4kddhVVTOKp7AS6imr4Hlq94r5NUTsw0Gox2n1NRvlJsHm4+dGUAr7U/823LTjPQilUTqM95NtT6UUqhHNNfAsgy8S+sXFesHXUuoGbO8jSo6QmUghh4SZNK76ijTJh2xHs5y90jPUJi7PKsNjheOwhBj/3wpKoDJljWXiKvxMoRhblYsizJqB7GsfPOuZbwDhcqlWG8w18UZp/+XDunaPlSOlq/HYWwQEF66nTDfP52F/aurqq90/mmNdGZ+moWPzYPI9CrNhpqg+Bn6czwIeglJgEsB4J0BL69nAL2Rc3Lv+X8slbz8=
+    # NPM_TOKEN - semantic-release/npm
+    - secure: d8mL49AbdWXtRWi2H1lOEpNgIBGMC2EE2dkIK8RqnpM86+AbAwmacSgnsSPMDm3iQ/J17gNfVSBsdRFDRpYv6eGF2noQQiTQbRmyCQC7FhpAYxpNrfq1y3aaIyvt4YuC4SUkfdezCGGyJ0DNgiCWnFju9YDiPjff8qzDiOkFWfZhdktUNAJbxq4t+9VOh5u820+dcYm6p+DiZrrLgb2y0rGXG4elnuae1Jhh59f7crUYpExhgRgFu07o51dbj5oLQa1B1GcueSJ+ACPdKXkSWBorIPA0gmRMUteAmw7NTMwaJ5voyqf+b8e9m11BXKFMrwzgKSFB1+Ofg3vbJ5xyjZVGO6T6ilGtQL2iupLa+GNHEEcNFqMhJkLWdn312Vssv2tGY6Ww3e93Y/NZBPQtE5xPbeaJxn27a+54IiljKafOQz8PV2C5iHDfIxtL9YM8T+ftst99Xpa0OOLSZ4kx3zJCoOTFg8CRYhhAJYJqM3GuKrI02nC3qArvs6tJRQ7PLXRz0Z+b8+YXEHUtyd54V1Y5rpcmhHlpOIOvyQDPLjhw8pJyBAUVId4Et2EPEICYFrgV78BOQbUCv3Of1LJdUemKQRyIU4KI93XyARIUJO8ARlwrVM/HYUHt2+0iVSLhRMYX5Mr2i86EHii07b1UAa18ysD4/gM4teNWOekl2D4=
+    # SNYK_TOKEN
+    - secure: Ek9nE3JmLF9J1ynLNPh7f2IYlowWzMfmTvke2fWbX7o7Yoio1SkMXMa7KQm3TGmqcJh1xzNmoDFh1CqFLDuYQvQoM8uYVpVQfccjNnGYPKMjwx6uF750iNmbZ/wY12cCShtw3L9NGSGplVEesbDBNddGMv14kUmXq2mxFyJMGj+zcBCxJLzdiSGkjlWkV/wSxgvCo6reWPaYrdqWId013ziJs1Blw121FJbuTCJac8mLJgupo+0J9SphYx74wsGaXKFENguu8T5xlfS1rBhfBhL1le2M2Q3SLs3cpJCdAZttYMW4xLbX5ifQ4UEVg8AtHcP08GDYlxpsFnFra8ge+KvatFF6+ClMcwnWnvmXO0vlpGduU4T/s7m1no/jiLFXMkV1FlN8j/qFVM9nBu9r3lOpmDTPzPh/ckkJ121XqjOQv4KKKBvm6T5OzIi2tXIspdJmc39QZHdd3dfseT2tsa8I0NBoOXCpQouOMj23gwIygQxuC9o5cF+lrS2RJ4n6l9I+OznfR1PlVcOGuMVQzHUbKZAizFAImuGUxBAKU2bLNGR+F4R6NAh3gr+mLm3YvY90EREOPNEpqVqiXE9KeSqBImk0Ddv4gUdjcQlLm0FzhJSiNwHa5D37ROA76XxS6OhLDDj6R+xGm7DX4TmER1yd91RhAxdIj0500b6R+Hg=
+    # GPG signature env vars
+    # https://github.com/semantic-release/git/tree/905f113a577c55cd9bb0a37ea3504d9e8ee2dfa2#gpg-signature
+    # GPG_PASSPHRASE
+    - secure: khPkzY2VVA9skRPoVWkVzllEEWsXMBLJH98Pm75UGSR5/3B7Tjt68YMon2kZv19ubQRqcBvwMprh0v5IMVBETLcg4q7Hq1Ur6/rY+8z4oplLiMMgiWaRuhduITR95JblNCQ2lMPlP9nzN3mq0Ey2XiOnmT9jXypzIQ4hzNhrOokahUgz3joPPp+a82UfGhCgC9MlNZCgSENmtZjO0xJ3xp8/xBSYe4dHYUu+/whv6/EutckMr1u5N3uJotBRmipnDfWluQ4l0A7qkNYhZqfFnpHB9otV3HLgaH4tFXFmTJCQJVMKKNvKP/We5X+oO1UgVlIa86qmSt92vfYqCrWxyNJEXsHIQdSM+r8jStPIDlWpN39bOeA+IpRa+reAmyOcFNqog/X3P0ns5OWLpsC5gwGaXcHlZbk3Of4LP9X90BawSACesVKvN7wPT1lXcDMzdVZsREjEs/BwA7NPxoAR1iEgAk5qeB7s20TGRjwEIXywGFBzsVu2tr4zKidvJMh/wnaZTovOp3Yt+AVl9ztFOCq1Lj/u+wvfQzNQoFKWuOHS0YBXyLgJNrWjAcMugYctGYTl2AfG++x1ApqtpPKk//xxzadCfpKCno+l8LjZOMDerrHlmK3GZWbURDtdW8dvLONXS/tjXO/2RQH35w+dJnkn5aZXJG3gp/uIpr7zMbw=
+    # GPG_KEY_ID
+    - secure: VizdUOJw3cEjKDd88dPlxQicaddNo/zgoXNuDESmIpvciTzMO5WqVdoCOawWXxLRR/WLNIEQh9MRrpaIuvklxP3AYtfLFZRr6BJuIdpnuUYiYpvuBa5RpDOcHZOoTgDd8D79Y8aAvj1r2nqjoIRnMp8ZzjnqfywAJbykNNJa+qaSANgYZCVMxzm5OMoPxdyZNKq6A8pTm1V4/S8uGfXxTrIDj849HGMH2ZObtxEfKDqFwLu0MCvMsBpW3moWc0Hy4iyAjoCpsjve84U/ufZ4LHI2PSnK+FMViQ6EqrOmzQEHM2t93f9unhteyN3qpJtKrZyrIkc1jRV0tqfKjlACMAHcs5Q+4cHbTYQnBnMyDMQ6/frii+P0PDmIG4RP8LyEgx0SSspsU0fqJvvC8c9wtnYsj2Pb3l3EEDZ8k0GIfNPhKBPsmHvW/8mZ1vnt93V4uvAqid/S3Z9Ho/BEkaIZz8do+itA1DeZRlFZVkIVOEDxPi+vsqtrPpkajxX8we7DdNBwtz3fz/ygmId0Z9RmD/PY9uDFOuKpEQfXDwMxPNdNFcipAl0U7uipi6JTTDE1WxkB+2f+/kPAD5FGQzXgeBoahv6xEzo1ev7Lq4kiEpkkUIEIYi+0S5yhU8BX7mUM10x9YskNWFp5BKy+plO9Gyw9gJmFO4NogEW6YPfvftQ=
+    # GIT_EMAIL
+    - secure: AgAGAGzDZj0IiS8uVsau5+FJKm67k+pKchV5+PgzAb53U7ACt32F2xYX0KjuSnu1gOgQuw1Kw/jIZw2nk70p/6BpAOaa435s26Yn6dYMhoQP8O7Q0kCR/RPDy48QCJW5ZVw+PjRgbimT1EABXo9wXz76/BRj394Rhi27z4umJHfCHms6+BrWGhNVMWtfI02sfRMSIcD0X5q7FmrVykPFsX8L3ObnrnC4HHuRPs3fwWAVrITqh41wdFfiDxuTw1LTpu3Ob5OdNhAhWmach0iGCHyKyL8uoLpX6zijurwZSD1dcB4mB7aL8j/Pw6URou1B8T115uBkeogEBiX2F/K6L2aXoO8MHmATE5/yBi/6mIndZfSZG2FWEFfHiLIInDjjzt/bmTkPWnXzZnUZxQukf+JwjtdbeAIBXh+LmOOmnHkD2aig1F3DFLIfmPdeTf2MGFEqGdkoAM4KdelPGS8cVqlmpRciMgFg6nHZWCo580IztydP7sS9hxaYRJiU2g8sRIMBZMwtbwBIHT2spJdJ8KUVPUvdgajwJ2ujvAap7UAy3PC58CT1QKmgzTadSDC5Ma4EjytrTXP7aVXLPcq0CIdIXLc6IYdR0PTcCEERAOtzjRwSX0hEN6hxGFzGqgIOnlgkCNq/Jy04+3h7KgG0xyaAMEf0/RkF/AeG7ZzUs1c=
+    # GIT_USERNAME
+    - secure: cPL32ZQO7NwRHXfz8iOhOeRymYDZiDMI53zWzdXKLX4QrESGvZpfdR+rFhPwAp8JZApPeVNEovOo/JkYtvJFAXAHoXKfIIU+JTECWrrQvZtPe0KRtMD/IgIqVDQxL5v3lD3xjscgmEdjj3jehmx50dhMl3/6W1FnTy0+8DXxC5EUrbWL+yStOE73The7Rs4bRZLwKl6xe4k3v0TBH/ue3pasElaHzBXNhWrg/d/NAy4pCFF/YK+sviY+cK4U7JsEWv/NeBW8YvYEzW5mQKK3auP+dUFUbXS4qFjVIHm0IA7qw4NVNRo9zlTjratlpG1nGkvORbGbd23c907OlMnQ1dus8krBSvpIc5hohv6GxKuU47IbwJivvU92b9NUaP9fi/VhA32NesVAwxSKhaDFFP+bEkZ7bRZd8REUGPROkTXFtJ5y53G/qv7RkO95i42eZ4c2/MR5E0RsNuLwinALAsgCN0Yr5uvJlpxr3QLZ51L4NnmPJTdogpxjmy6jeRYvujuo16sLc1cZGaSSpQ6VA4Yv7cC9x00aRN0/XETT+LvfDQvPPSra0sqjeDds3qAQeYQsJfCLO091vHoru/y2lE9bkr/K7xQbWBCwM0Z0EwPVCK72jyuVoEWoYVIYDT0Cbek5HZ1Xfhgg9oI8tD47R7CWr4BScCa6dDOAUZVFhU0=
+    # GIT_COMMITTER_NAME (to have signed commits from semantic-release)
+    - secure: pOkJtmLvfkoyqmnj0wWJR4ticIlymoYKzMASwmy18qIi/xg36CbEwNlN4/CZOvOsKMD+ggjtRSz8lN623ddwa1r09siMQpXqUjLBiC1xPqDycB2LAQUWRGk9T3Sm4fxP11mjnIVRTKwVWwdPerQXVsEP5lr6M8J9N83TNNfSWNfsNUgytZJpqnKZ+GJurg/aZ15P/SgeqGMCLHqwFniBwiGSQ+W+p6eAcFhLty0KyMpzcjXKzr8FXyI/NewX7YhgycsMsnr9tV7doEbYWsAFeIOQDSnS3WuxZMawMlwNxNZoEDYBHwLZp7a6kF4vJD5i8L+L66TIDGpsP1bQOhhmoVEGjbTr54QssxwGUOFl0Bm7+seq7dHUBS7u0QWrZ/0u8tRxeJRdOvnKA6wRFVEWDS2ZXDKWg+6AwprsDkjlaooSpGSi9B3nlZWk7e8Qa2A3Dc8MlVJECwqLiVY3GDZj97JvI/Doqr676JaFS7J9WYWfm+shC0SMg9cI+eN76GXh/Ppoaa1W+5+xcHJdadVH6+IUNQEYj2VzvwTKJkhZJPH8ctQu+AAxYgtyZpbejkEmVlbOKTH4vVoeqsjSOxO1jjueCGbU/prLDYp/scKKkF6jJGe99O/Wsi7ViMRaAiBNmO3dvVJgD7T2OrOBycbCkS08c0uutHQEJl8X5UoXJZA=
+    # GIT_COMMITTER_EMAIL (to have signed commits from semantic-release)
+    - secure: XCA9czsUtNbIv5sTZqOc2cmqHQkHnAfOjWlYGYocz/CBdauj1QT/nCQwZNh4KsH9Gb3dod5NEwK6EC1+kKxSEx9qy3VDzvvEch1GKhsLzWmt54OigeooaP+iUhARttxfS1as1+krNLtt+c30+SQpbCGYYQOw+cn/cLHNJeumv0BMlRBzEn7GptRzKocL38g8EO/nwBohVsheRGsPt9XaxqfQ/5jZvZCBh/c366biFD9rIUWuk7BHM7lLgxwABj33+pCdvV067t0GVi58NAS1IVevEhBkt1fSgU5iD2AYX0CYwQvjOQlpNH8aWGbCzUqFqK9lnO7LjR9y2zqwjlnlNWPu1jx3pIH9V7w6iQOSl6yE+cVtICy8eNyHtCa+jj1dXWLE+aYedY1j0kxeROSVzpNx0vfo2IuznDqo0GkPQJCbA3xMOOp5IJmY3an5QhqewodEiwOJC6FKOUUrJYXT593+5GLpSPDSf4gYA8HfXd2UkzJl6l6/PKbJlHZfw+H641xZDg1XojrNAi6s05rT7RYtNd0/g+vYAQNJrmKrmpQbOmB4S+N5ebKCwGl72ymrvVNtBl38pYNp+XFan2IkPpWkyrVMo1wkMvxdlO8gMPZAxn04FthDi1qcc6Q9uKLjY2JeKD0qOYMCtmh6Z4mnLX0qmz13UM4ILGuO76WRMy0=

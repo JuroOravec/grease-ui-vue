@@ -1,0 +1,95 @@
+os: linux
+dist: xenial
+
+branches:
+  only:
+    - master
+  except:
+    - /temp\/.*/
+
+language: node_js
+node_js:
+  - '10'
+  - '11'
+  - '12'
+  - '13'
+
+before_install:
+  # Configure signed git commits from within Travis CI, see:
+  # https://github.com/semantic-release/git/tree/905f113a577c55cd9bb0a37ea3504d9e8ee2dfa2#gpg-signature
+  # Decrypt git_gpg_keys.asc.enc key into /tmp/git_gpg_keys.asc
+  - openssl aes-256-cbc -K $encrypted_44fd1061a48b_key -iv $encrypted_44fd1061a48b_iv -in ./config/travis-ci/git_gpg_keys.asc.enc -out /tmp/git_gpg_keys.asc -d
+  # Make sure only the current user can read the keys
+  - chmod 600 /tmp/git_gpg_keys.asc
+  # Import the gpg key
+  - gpg --batch --yes --import /tmp/git_gpg_keys.asc
+  # Create a script that pass the passphrase to the gpg CLI called by git
+  - echo '/usr/bin/gpg --passphrase ${GPG_PASSPHRASE} --batch --no-tty "$@"' > /tmp/gpg-with-passphrase && chmod +x /tmp/gpg-with-passphrase
+  # Configure git to use the script that passes the passphrase
+  - git config gpg.program "/tmp/gpg-with-passphrase"
+  # Configure git to sign the commits and tags
+  - git config commit.gpgsign true
+  # Configure git to use your GPG key
+  - git config --global user.signingkey ${GPG_KEY_ID}
+install:
+  - npm install
+  # Remove installation side effects (like updated package-lock.json)
+  - git reset --hard HEAD
+before_script:
+  - npm run setup
+script:
+  - commitlint-travis
+  - npm run validate
+
+jobs:
+  include:
+    - stage: codecov
+      node_js: lts/*
+      script:
+        - npm run test:cov
+
+    - stage: update CHANGELOG.md
+      if: type = pull_request
+      node_js: lts/*
+      script: npx semantic-release # runs with PR-specific config
+
+    - stage: release
+      node_js: lts/*
+      script: ':' # noop, skips tests
+      deploy:
+        edge: true
+        provider: script
+        script: npx semantic-release
+        on:
+          # Branch selection is managed by semantic-release in .releaserc.yml
+          all_branches: true
+          repo: <%= authorGithubUsername %>/<%= projectName %>
+      after_deploy:
+        - npx snyk monitor
+
+notifications:
+  email:
+    on_success: never
+
+env:
+  global:
+    # GH_TOKEN - semantic-release/github
+    - secure: <paste your encrypted token here>
+    # NPM_TOKEN - semantic-release/npm
+    - secure: <paste your encrypted token here>
+    # SNYK_TOKEN
+    - secure: <paste the encrypted token here>
+    # GPG signature env vars
+    # https://github.com/semantic-release/git/tree/905f113a577c55cd9bb0a37ea3504d9e8ee2dfa2#gpg-signature
+    # GPG_PASSPHRASE
+    - secure: <paste your encrypted passphrase here>
+    # GPG_KEY_ID
+    - secure: <paste your encrypted key here>
+    # GIT_EMAIL
+    - secure: <paste your encrypted email here>
+    # GIT_USERNAME
+    - secure: <paste your encrypted username here>
+    # GIT_COMMITTER_NAME (to have signed commits from semantic-release)
+    - secure: <paste the encrypted name here>
+    # GIT_COMMITTER_EMAIL (to have signed commits from semantic-release)
+    - secure: <paste the encrypted email here>
